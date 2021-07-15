@@ -1,0 +1,77 @@
+body {
+    background-size: cover;
+    background-repeat: no-repeat;
+}
+
+.heading
+{
+width: 100%;
+text-align: left;
+}
+.heading h3{
+    display: inline;
+}
+
+.heading button{
+    float: right;
+    border: 1px solid white;
+}
+
+#start
+{
+font-size: 22px;
+margin-top: 5%;
+margin-bottom: 1%;
+}
+
+#restart
+{
+font-size: 22px;
+margin-top: 6%;
+background-color: rgba(0, 0, 0, 0.24);
+border-radius: 3px;
+border-color: rgba(0, 0, 0, 0.178);
+color: rgba(255, 255, 255, 0.712);
+}
+
+#restart:hover
+{
+    box-shadow: rgba(0, 0, 0, 0.377) 7px 6px 5px;
+    transition: 2s;
+}
+#status
+{
+font-size: 22px;
+margin-top: 56%;
+}
+
+.modal-dialog
+{
+    width: 70%;
+}
+.modal-body
+{
+    text-align: left;
+    font-size: 20px;
+}
+h4
+{
+   background-color: grey;
+   color:white;
+   line-height: 2;
+   margin-top: 6%;
+}
+canvas 
+  {
+      border:3px solid white;
+  }
+ 
+.instruction{
+    float:right;
+    border:1px solid white;
+    font-size:22px;
+    font-family: monospace;
+    letter-spacing: 5px;
+    font-weight: bold;
+}
+
