@@ -1,4 +1,4 @@
-/* Enhanced by AI Assistant - Based on original by Prashant Shukla */
+
 
 // Game variables
 var paddle2 = 12, paddle1 = 12;
