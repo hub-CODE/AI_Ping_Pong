@@ -1,738 +1,594 @@
+/* NeuraPong - Enhanced AI Ping Pong Game */
+/* Fixed version with proper error handling */
 
-// Game variables
-var paddle2 = 12, paddle1 = 12;
-var paddle1X = 20, paddle1Height = 110;
-var paddle2Y = 665, paddle2Height = 90;
-
-var score1 = 0, score2 = 0;
-var paddle1Y;
-
-var playerscore = 0;
-var pcscore = 0;
-
-// Ball properties with enhanced physics
-var ball = {
-    x: 350/2,
-    y: 480/2,
-    r: 15,
-    dx: 4,
-    dy: 4,
-    trail: [],
-    maxTrail: 8
+// Check if p5.js is loaded
+if (typeof p5 === 'undefined') {
+    console.error("p5.js is not loaded!");
+    document.getElementById("status").innerHTML = "❌ Error: Game engine not loaded";
+} else {
+    console.log("p5.js loaded successfully!");
 }
 
-// PoseNet variables
-var rightWristY = 0;
-var rightWristX = 0;
-var scoreRightWrist = 0;
-var game_status = "";
-var poseNet = null;
-var video = null;
-var canvas = null;
+// Global variables
+let video;
+let poseNet;
+let poses = [];
+let gameStarted = false;
+let score = 0;
+let aiScore = 0;
+let ball;
+let playerPaddle;
+let aiPaddle;
+let gameState = "waiting"; // waiting, playing, gameOver
+let rightWristY = 0;
+let rightWristX = 0;
 
-// Visual effects
-var particles = [];
-var hitEffects = [];
-var gameStarted = false;
-var poseNetReady = false;
-var errorMessage = "";
-
-// Debug mode
-var debugMode = true;
+// Sound variables
+let paddleHitSound;
+let scoreSound;
+let gameOverSound;
 
 function preload() {
-    // Load sounds with fallback
-    try {
-        ball_touch_paddel = loadSound("ball_touch_paddel.wav");
-    } catch(e) {
-        console.log("Could not load paddle sound, using fallback");
-        ball_touch_paddel = null;
-    }
-    
-    try {
-        missed = loadSound("missed.wav");
-    } catch(e) {
-        console.log("Could not load missed sound, using fallback");
-        missed = null;
-    }
+    // We'll create simple tones instead of loading files
+    console.log("Preload complete");
 }
 
 function setup() {
-    console.log("Setting up game...");
+    console.log("Setup started...");
     
     try {
         // Create canvas
-        canvas = createCanvas(700, 600);
+        const canvas = createCanvas(800, 500);
         canvas.parent('canvas');
         
-        // Enhanced canvas styling
-        canvas.elt.style.border = '3px solid rgba(255, 255, 255, 0.3)';
-        canvas.elt.style.borderRadius = '15px';
-        canvas.elt.style.boxShadow = '0 10px 30px rgba(0, 0, 0, 0.3)';
+        // Style canvas
+        canvas.style('border-radius', '10px');
+        canvas.style('box-shadow', '0 10px 30px rgba(0,0,0,0.3)');
         
-        // Set initial status
-        document.getElementById("status").innerHTML = "🎮 Loading Game...";
+        // Initialize game objects
+        initGameObjects();
         
-        // Setup video with error handling
+        // Setup video
         setupVideo();
         
-        // Initialize particles
-        for(let i = 0; i < 20; i++) {
-            particles.push({
-                x: random(width),
-                y: random(height),
-                size: random(2, 5),
-                speed: random(1, 3)
-            });
-        }
+        // Update status
+        updateStatus("🎮 Ready! Click 'Play Game'");
         
         console.log("Setup complete!");
         
-    } catch(error) {
+    } catch (error) {
         console.error("Setup error:", error);
-        errorMessage = "Setup Error: " + error.message;
-        showErrorMessage();
+        showError("Setup failed: " + error.message);
     }
+}
+
+function initGameObjects() {
+    // Initialize ball
+    ball = {
+        x: width / 2,
+        y: height / 2,
+        diameter: 20,
+        speedX: 5,
+        speedY: random(-3, 3),
+        color: [100, 255, 100]
+    };
+    
+    // Initialize paddles
+    playerPaddle = {
+        x: 30,
+        y: height / 2 - 50,
+        width: 15,
+        height: 100,
+        color: [255, 50, 50],
+        speed: 0
+    };
+    
+    aiPaddle = {
+        x: width - 45,
+        y: height / 2 - 50,
+        width: 15,
+        height: 100,
+        color: [255, 165, 0],
+        speed: 4
+    };
 }
 
 function setupVideo() {
-    console.log("Setting up video...");
-    
     try {
         // Create video capture
         video = createCapture(VIDEO);
-        video.size(700, 600);
+        video.size(width, height);
         video.hide();
         
-        // Wait for video to be ready
-        video.elt.onloadeddata = function() {
-            console.log("Video loaded successfully");
-            setupPoseNet();
-        };
-        
-        video.elt.onerror = function() {
-            console.error("Video failed to load");
-            errorMessage = "Camera access failed. Please allow camera access.";
-            poseNetReady = false;
-            showErrorMessage();
-        };
-        
-    } catch(error) {
-        console.error("Video setup error:", error);
-        errorMessage = "Camera Error: " + error.message;
-        poseNetReady = false;
-        showErrorMessage();
-    }
-}
-
-function setupPoseNet() {
-    console.log("Setting up PoseNet...");
-    
-    try {
-        // Check if ml5 is loaded
-        if (typeof ml5 === 'undefined') {
-            throw new Error("ml5 library not loaded");
-        }
-        
-        // Initialize PoseNet
-        poseNet = ml5.poseNet(video, {
-            flipHorizontal: true,
-            minConfidence: 0.5
-        }, function() {
-            console.log("✅ PoseNet Model Loaded!");
-            poseNetReady = true;
-            poseNet.on('pose', gotPoses);
-            
-            // Update status
-            document.getElementById("status").innerHTML = "✅ Ready! Click 'Play Game'";
-            document.getElementById("status").style.background = "linear-gradient(45deg, #00b09b, #96c93d)";
-            
-            // Enable start button
-            document.getElementById("start").disabled = false;
+        // Setup PoseNet
+        poseNet = ml5.poseNet(video, modelReady);
+        poseNet.on('pose', function(results) {
+            poses = results;
         });
         
-        // Error callback
-        poseNet.on('error', function(error) {
-            console.error("PoseNet Error:", error);
-            errorMessage = "AI Model Failed to Load. Check console.";
-            poseNetReady = false;
-            showErrorMessage();
-        });
-        
-    } catch(error) {
-        console.error("PoseNet setup error:", error);
-        errorMessage = "AI Setup Error: " + error.message;
-        poseNetReady = false;
-        showErrorMessage();
+    } catch (error) {
+        console.warn("Video/PoseNet setup warning:", error);
+        updateStatus("⚠️ Camera not available - Using mouse controls");
     }
 }
 
-function modelLoaded() {
-    console.log('✅ PoseNet Is Initialized - Ready for NeuraPong!');
-    poseNetReady = true;
-    
-    // Update status
-    document.getElementById("status").innerHTML = "✅ Ready! Click 'Play Game'";
-    document.getElementById("status").style.background = "linear-gradient(45deg, #00b09b, #96c93d)";
-}
-
-function gotPoses(results) {
-    if(results && results.length > 0) {
-        try {
-            rightWristY = results[0].pose.rightWrist.y;
-            rightWristX = results[0].pose.rightWrist.x;
-            scoreRightWrist = results[0].pose.keypoints[10].score;
-        } catch(e) {
-            console.warn("Pose data parsing error:", e);
-        }
-    }
-}
-
-function showErrorMessage() {
-    console.error("Displaying error:", errorMessage);
-    
-    // Create error display on canvas
-    background(255, 0, 0, 100);
-    fill(255);
-    stroke(0);
-    strokeWeight(2);
-    textSize(20);
-    textAlign(CENTER);
-    text("⚠️ ERROR", width/2, height/2 - 40);
-    text(errorMessage, width/2, height/2);
-    text("Check console for details", width/2, height/2 + 40);
-    
-    // Update status
-    document.getElementById("status").innerHTML = "❌ Error - Check Console";
-    document.getElementById("status").style.background = "linear-gradient(45deg, #ff6b6b, #ee5a24)";
+function modelReady() {
+    console.log('✅ PoseNet model ready!');
+    updateStatus("✅ AI Ready! Click 'Play Game'");
 }
 
 function draw() {
     try {
-        // Check for errors first
-        if (errorMessage) {
-            showErrorMessage();
-            return;
+        // Clear background
+        drawBackground();
+        
+        // Draw video if available
+        if (video && gameState === "playing") {
+            drawVideoLayer();
         }
         
-        // Check if canvas is ready
-        if (!canvas) {
-            console.error("Canvas not initialized");
-            return;
+        // Update and draw game elements based on state
+        switch(gameState) {
+            case "waiting":
+                drawWelcomeScreen();
+                break;
+            case "playing":
+                updateGame();
+                drawGame();
+                break;
+            case "gameOver":
+                drawGameOver();
+                break;
         }
         
-        // Draw different screens based on game state
-        if (game_status !== "start") {
-            drawWelcomeScreen();
-            return;
-        }
-        
-        // Main game loop
-        drawEnhancedBackground();
-        
-        if (video && poseNetReady) {
-            drawVideoFeed();
-        } else {
-            drawFallbackView();
-        }
-        
-        drawCourt();
-        
-        if(scoreRightWrist > 0.2) {
-            drawWristMarker();
-        }
-        
-        paddleInCanvas();
-        drawPlayerPaddle();
-        drawComputerPaddle();
-        midline();
-        drawScore();
-        drawModels();
-        move();
-        updateTrail();
-        updateParticles();
-        updateHitEffects();
-        
-    } catch(error) {
-        console.error("Draw loop error:", error);
-        errorMessage = "Render Error: " + error.message;
-        showErrorMessage();
+    } catch (error) {
+        console.error("Draw error:", error);
+        // Don't show error on screen during gameplay
+    }
+}
+
+function drawBackground() {
+    // Gradient background
+    for (let i = 0; i <= height; i++) {
+        let inter = map(i, 0, height, 0, 1);
+        let c = lerpColor(color(30, 30, 60), color(10, 10, 30), inter);
+        stroke(c);
+        line(0, i, width, i);
+    }
+    
+    // Court boundaries
+    stroke(255, 255, 255, 100);
+    strokeWeight(3);
+    noFill();
+    rect(0, 0, width, height);
+    
+    // Center line
+    stroke(255, 255, 255, 50);
+    strokeWeight(2);
+    for (let i = 0; i < height; i += 20) {
+        line(width/2, i, width/2, i + 10);
+    }
+}
+
+function drawVideoLayer() {
+    try {
+        push();
+        tint(255, 100); // Semi-transparent
+        image(video, 0, 0, width, height);
+        pop();
+    } catch (e) {
+        // Video might not be available
     }
 }
 
 function drawWelcomeScreen() {
-    // Welcome screen with instructions
-    background(102, 126, 234);
-    
-    fill(255, 255, 255, 200);
+    // Welcome text
+    fill(255);
     noStroke();
-    rect(50, 50, width-100, height-100, 20);
-    
-    fill(102, 126, 234);
-    textSize(36);
     textAlign(CENTER);
-    text("🎮 NEURAPONG", width/2, 120);
     
-    textSize(20);
-    fill(60);
-    text("AI Ping Pong with Hand Tracking", width/2, 170);
+    // Title
+    textSize(48);
+    text("NEURAPONG", width/2, 100);
     
-    // Status indicator
-    if (!poseNetReady) {
-        fill(255, 165, 0);
-        text("Loading AI Model...", width/2, 250);
-    } else {
-        fill(0, 150, 0);
-        text("✅ AI Model Ready!", width/2, 250);
-    }
-    
-    // Instructions
-    textSize(16);
-    fill(80);
-    text("Click 'Play Game' to start", width/2, 320);
-    text("Move your right wrist to control the paddle", width/2, 350);
-    text("Make sure camera can see your wrist", width/2, 380);
-    
-    // Camera preview
-    if (video) {
-        push();
-        translate(width/2, 450);
-        scale(0.3);
-        image(video, -video.width/2, -video.height/2);
-        pop();
-    }
-}
-
-function drawFallbackView() {
-    // Fallback when video/PoseNet isn't working
-    background(50);
-    
-    fill(255, 255, 255, 100);
+    // Subtitle
     textSize(24);
-    textAlign(CENTER);
-    text("⚠️ Camera/AI Not Available", width/2, height/2 - 50);
+    text("AI Ping Pong with Hand Tracking", width/2, 140);
     
-    textSize(16);
-    text("Using mouse/touch controls instead", width/2, height/2);
-    
-    // Show mouse position as fallback
-    fill(255, 0, 0);
-    circle(mouseX, mouseY, 30);
-    rightWristY = mouseY;
-    rightWristX = mouseX;
-}
-
-function drawEnhancedBackground() {
-    // Gradient background
-    for(let y = 0; y < height; y += 2) {
-        let inter = map(y, 0, height, 0, 1);
-        let c = lerpColor(color(102, 126, 234), color(118, 75, 162), inter);
-        stroke(c);
-        line(0, y, width, y);
-    }
-}
-
-function drawVideoFeed() {
-    // Draw video with transparency and overlay
-    try {
-        tint(255, 150);
-        image(video, 0, 0, 700, 600);
-        noTint();
-        
-        // Add overlay
-        fill(0, 0, 0, 50);
-        rect(0, 0, width, height);
-    } catch(e) {
-        console.warn("Video feed error:", e);
-    }
-}
-
-function drawCourt() {
-    // Enhanced court boundaries
+    // Instructions box
     fill(255, 255, 255, 30);
-    stroke(255, 255, 255, 80);
-    strokeWeight(3);
-    rect(680, 0, 20, 700);
-    rect(0, 0, 20, 700);
-}
-
-function drawWristMarker() {
-    // Enhanced wrist marker with glow effect
-    fill(255, 50, 50, 200);
-    stroke(255, 100, 100);
-    strokeWeight(3);
-    
-    // Pulsing effect
-    let pulseSize = sin(frameCount * 0.1) * 5 + 25;
-    circle(rightWristX, rightWristY, pulseSize);
-    
-    // Inner circle
-    fill(255, 100, 100);
-    noStroke();
-    circle(rightWristX, rightWristY, 15);
-}
-
-function drawPlayerPaddle() {
-    // Glowing player paddle
-    drawGlowingRect(paddle1X, paddle1Y, paddle1, paddle1Height, color(255, 50, 50));
-    
-    // Paddle details
-    fill(255, 100, 100);
-    noStroke();
-    rect(paddle1X + 2, paddle1Y + 2, paddle1 - 4, paddle1Height - 4, 5);
-}
-
-function drawComputerPaddle() {
-    var paddle2y = ball.y - paddle2Height/2;
-    drawGlowingRect(paddle2Y, paddle2y, paddle2, paddle2Height, color(255, 165, 0));
-    
-    // Paddle details
-    fill(255, 200, 100);
-    noStroke();
-    rect(paddle2Y + 2, paddle2y + 2, paddle2 - 4, paddle2Height - 4, 5);
-}
-
-function drawGlowingRect(x, y, w, h, col) {
-    // Multiple layers for glow effect
-    for(let i = 5; i > 0; i--) {
-        fill(red(col), green(col), blue(col), 50/i);
-        stroke(red(col), green(col), blue(col), 100/i);
-        strokeWeight(i);
-        rect(x, y, w, h, 10);
-    }
-}
-
-function midline() {
     stroke(255, 255, 255, 100);
     strokeWeight(2);
+    rect(width/2 - 200, 180, 400, 200, 10);
     
-    // Dashed center line
-    for(let i = 0; i < height; i += 20) {
-        line(width/2, i, width/2, i + 10);
+    // Instructions text
+    fill(255);
+    noStroke();
+    textSize(18);
+    textAlign(LEFT);
+    
+    let instructions = [
+        "🎮 How to Play:",
+        "1. Click 'Play Game' to start",
+        "2. Move your right wrist up/down",
+        "3. Control the red paddle",
+        "4. Hit the ball back to AI",
+        "5. First to 5 points wins!"
+    ];
+    
+    for (let i = 0; i < instructions.length; i++) {
+        text(instructions[i], width/2 - 180, 220 + i * 30);
     }
     
-    // Center circle
-    noFill();
-    stroke(255, 255, 255, 80);
-    ellipse(width/2, height/2, 100, 100);
-}
-
-function drawScore() {
+    // Status indicator
     textAlign(CENTER);
-    textSize(26);
-    fill(255);
-    stroke(0);
-    strokeWeight(4);
+    textSize(20);
+    if (poseNet) {
+        fill(100, 255, 100);
+        text("✅ AI System Ready", width/2, 400);
+    } else {
+        fill(255, 200, 100);
+        text("⚠️ Using Mouse Controls", width/2, 400);
+    }
+}
+
+function updateGame() {
+    // Update wrist position from PoseNet or mouse
+    updatePlayerPosition();
     
-    // Player score with glow
-    drawTextWithShadow("Player: " + playerscore, 120, 50);
-    drawTextWithShadow("Computer: " + pcscore, 580, 50);
+    // Update ball
+    updateBall();
     
-    // Score divider
-    fill(255, 255, 255, 100);
+    // Update AI paddle
+    updateAIPaddle();
+    
+    // Check collisions
+    checkCollisions();
+    
+    // Check score
+    checkScore();
+}
+
+function updatePlayerPosition() {
+    if (poses.length > 0) {
+        // Get right wrist position from PoseNet
+        let rightWrist = poses[0].pose.rightWrist;
+        rightWristY = rightWrist.y;
+        rightWristX = rightWrist.x;
+        
+        // Update paddle position
+        playerPaddle.y = constrain(rightWristY - playerPaddle.height/2, 0, height - playerPaddle.height);
+        
+        // Draw wrist marker
+        drawWristMarker(rightWrist.x, rightWrist.y);
+        
+    } else {
+        // Fallback to mouse control
+        playerPaddle.y = constrain(mouseY - playerPaddle.height/2, 0, height - playerPaddle.height);
+        rightWristY = mouseY;
+        rightWristX = mouseX;
+    }
+}
+
+function drawWristMarker(x, y) {
+    // Draw pulsing circle at wrist
+    let pulse = sin(frameCount * 0.1) * 3 + 10;
+    
+    fill(255, 50, 50, 150);
     noStroke();
-    text("|", width/2, 50);
-}
-
-function drawTextWithShadow(text, x, y) {
-    // Text shadow
-    fill(0, 0, 0, 150);
-    text(text, x + 2, y + 2);
+    ellipse(x, y, pulse * 2);
     
-    // Main text
-    fill(255);
-    text(text, x, y);
+    fill(255, 100, 100);
+    ellipse(x, y, 15);
 }
 
-function drawModels() {
-    textSize(14);
-    fill(255, 200);
-    noStroke();
-    text("Speed: " + abs(ball.dx).toFixed(1), 60, 25);
-    text("Level: " + (playerscore + pcscore + 1), width/2, 25);
+function updateBall() {
+    // Move ball
+    ball.x += ball.speedX;
+    ball.y += ball.speedY;
+    
+    // Bounce off top and bottom
+    if (ball.y < 0 || ball.y > height) {
+        ball.speedY *= -1;
+    }
 }
 
-function move() {
+function updateAIPaddle() {
+    // Simple AI - follow the ball
+    let targetY = ball.y - aiPaddle.height/2;
+    
+    // Move towards target
+    if (aiPaddle.y < targetY) {
+        aiPaddle.y += min(aiPaddle.speed, targetY - aiPaddle.y);
+    } else if (aiPaddle.y > targetY) {
+        aiPaddle.y -= min(aiPaddle.speed, aiPaddle.y - targetY);
+    }
+    
+    // Keep paddle in bounds
+    aiPaddle.y = constrain(aiPaddle.y, 0, height - aiPaddle.height);
+}
+
+function checkCollisions() {
+    // Player paddle collision
+    if (ball.x - ball.diameter/2 <= playerPaddle.x + playerPaddle.width &&
+        ball.x + ball.diameter/2 >= playerPaddle.x &&
+        ball.y >= playerPaddle.y &&
+        ball.y <= playerPaddle.y + playerPaddle.height) {
+        
+        // Reverse direction and add slight random angle
+        ball.speedX = abs(ball.speedX) * 1.05;
+        ball.speedY += random(-2, 2);
+        
+        // Visual feedback
+        ball.color = [100, 255, 100];
+        
+        // Play sound if available
+        playPaddleSound();
+    }
+    
+    // AI paddle collision
+    if (ball.x + ball.diameter/2 >= aiPaddle.x &&
+        ball.x - ball.diameter/2 <= aiPaddle.x + aiPaddle.width &&
+        ball.y >= aiPaddle.y &&
+        ball.y <= aiPaddle.y + aiPaddle.height) {
+        
+        // Reverse direction
+        ball.speedX = -abs(ball.speedX) * 1.05;
+        ball.speedY += random(-2, 2);
+        
+        // Visual feedback
+        ball.color = [255, 100, 100];
+    }
+}
+
+function checkScore() {
+    // Player scores (ball passes AI paddle)
+    if (ball.x > width) {
+        score++;
+        resetBall();
+        ball.speedX = -5;
+        updateScoreDisplay();
+    }
+    
+    // AI scores (ball passes player paddle)
+    if (ball.x < 0) {
+        aiScore++;
+        resetBall();
+        ball.speedX = 5;
+        updateScoreDisplay();
+    }
+    
+    // Check for winner
+    if (score >= 5 || aiScore >= 5) {
+        gameState = "gameOver";
+        document.getElementById("status").innerHTML = "🏆 Game Over!";
+    }
+}
+
+function resetBall() {
+    ball.x = width / 2;
+    ball.y = height / 2;
+    ball.speedY = random(-3, 3);
+}
+
+function drawGame() {
+    // Draw paddles
+    drawPaddle(playerPaddle);
+    drawPaddle(aiPaddle);
+    
+    // Draw ball
     drawBall();
     
-    ball.x += ball.dx;
-    ball.y += ball.dy;
+    // Draw score
+    drawScoreDisplay();
+}
+
+function drawPaddle(paddle) {
+    // Draw paddle with shadow
+    fill(0, 0, 0, 100);
+    noStroke();
+    rect(paddle.x + 3, paddle.y + 3, paddle.width, paddle.height, 5);
     
-    // Ball trail
-    ball.trail.push({x: ball.x, y: ball.y});
-    if(ball.trail.length > ball.maxTrail) {
-        ball.trail.shift();
-    }
+    // Draw main paddle
+    fill(paddle.color[0], paddle.color[1], paddle.color[2]);
+    stroke(255, 255, 255, 150);
+    strokeWeight(2);
+    rect(paddle.x, paddle.y, paddle.width, paddle.height, 5);
     
-    // Right wall collision
-    if(ball.x + ball.r > width - ball.r/2) {
-        ball.dx = -ball.dx - 0.2;
-        createHitEffect(ball.x, ball.y);
-    }
-    
-    // Left wall collision (player paddle)
-    if(ball.x - 2.5 * ball.r/2 < 30) {
-        if(ball.y >= paddle1Y && ball.y <= paddle1Y + paddle1Height) {
-            handlePaddleHit();
-        } else {
-            handleMiss();
-        }
-    }
-    
-    // Game over condition
-    if(pcscore >= 5) {
-        gameOver();
-    }
-    
-    // Top/bottom wall collision
-    if(ball.y + ball.r > height || ball.y - ball.r < 0) {
-        ball.dy = -ball.dy;
-        createHitEffect(ball.x, ball.y);
-    }
-    
-    // Speed limits
-    ball.dx = constrain(ball.dx, -8, 8);
-    ball.dy = constrain(ball.dy, -8, 8);
+    // Draw inner highlight
+    fill(255, 255, 255, 50);
+    noStroke();
+    rect(paddle.x + 2, paddle.y + 2, paddle.width - 4, 10, 2);
 }
 
 function drawBall() {
-    // Draw trail
-    for(let i = 0; i < ball.trail.length; i++) {
-        let alpha = map(i, 0, ball.trail.length, 50, 200);
-        let size = map(i, 0, ball.trail.length, ball.r * 0.3, ball.r * 0.8);
+    // Draw ball trail
+    for (let i = 0; i < 5; i++) {
+        let alpha = map(i, 0, 5, 30, 100);
+        let size = map(i, 0, 5, ball.diameter * 0.5, ball.diameter);
         
-        fill(50, 350, 0, alpha);
+        fill(ball.color[0], ball.color[1], ball.color[2], alpha);
         noStroke();
-        ellipse(ball.trail[i].x, ball.trail[i].y, size);
+        ellipse(ball.x - i * ball.speedX * 0.2, ball.y - i * ball.speedY * 0.2, size);
     }
     
-    // Main ball with glow
-    fill(50, 350, 0);
-    stroke(255, 255, 0);
+    // Draw main ball
+    fill(ball.color[0], ball.color[1], ball.color[2]);
+    stroke(255, 255, 255);
     strokeWeight(2);
-    ellipse(ball.x, ball.y, ball.r * 2);
+    ellipse(ball.x, ball.y, ball.diameter);
     
-    // Ball inner detail
-    fill(200, 255, 100);
+    // Draw ball highlight
+    fill(255, 255, 255, 100);
     noStroke();
-    ellipse(ball.x, ball.y, ball.r);
+    ellipse(ball.x - ball.diameter/4, ball.y - ball.diameter/4, ball.diameter/3);
 }
 
-function handlePaddleHit() {
-    ball.dx = -ball.dx + 0.3;
+function drawScoreDisplay() {
+    // Score background
+    fill(0, 0, 0, 150);
+    noStroke();
+    rect(width/2 - 100, 10, 200, 60, 10);
     
-    // Add spin based on paddle movement
-    let paddleSpeed = abs(rightWristY - paddle1Y);
-    ball.dy += paddleSpeed * 0.1;
+    // Score text
+    fill(255);
+    noStroke();
+    textAlign(CENTER);
+    textSize(32);
     
-    playerscore++;
+    // Player score (left)
+    fill(255, 100, 100);
+    text(score, width/2 - 40, 50);
     
-    // Play sound if available
-    if (ball_touch_paddel) {
-        try {
-            ball_touch_paddel.play();
-        } catch(e) {
-            console.log("Sound play failed");
-        }
-    }
+    // Separator
+    fill(255, 255, 255, 100);
+    text(":", width/2, 50);
     
-    createHitEffect(ball.x, ball.y);
+    // AI score (right)
+    fill(255, 200, 100);
+    text(aiScore, width/2 + 40, 50);
     
-    // Visual feedback
-    document.getElementById("status").innerHTML = "🔥 Great Save!";
-    setTimeout(() => {
-        if(game_status == "start") {
-            document.getElementById("status").innerHTML = "🎮 Game Running";
-        }
-    }, 1000);
+    // Score labels
+    textSize(14);
+    fill(200, 200, 200);
+    text("PLAYER", width/2 - 40, 70);
+    text("AI", width/2 + 40, 70);
 }
 
-function handleMiss() {
-    pcscore++;
-    
-    // Play sound if available
-    if (missed) {
-        try {
-            missed.play();
-        } catch(e) {
-            console.log("Sound play failed");
-        }
-    }
-    
-    // Enhanced vibration pattern
-    if("vibrate" in navigator) {
-        try {
-            navigator.vibrate([100, 50, 100]);
-        } catch(e) {
-            console.log("Vibration not supported");
-        }
-    }
-    
-    createHitEffect(ball.x, ball.y, true);
-    reset();
-}
-
-function gameOver() {
-    // Game over screen
-    fill(255, 165, 0, 200);
+function drawGameOver() {
+    // Overlay
+    fill(0, 0, 0, 200);
     noStroke();
     rect(0, 0, width, height);
     
+    // Game over text
     fill(255);
-    stroke(0);
-    strokeWeight(4);
-    textSize(32);
     textAlign(CENTER);
+    textSize(48);
     
-    drawTextWithShadow("Game Over!", width/2, height/2 - 40);
+    if (score > aiScore) {
+        text("🎉 YOU WIN!", width/2, height/2 - 60);
+    } else {
+        text("💻 AI WINS!", width/2, height/2 - 60);
+    }
     
+    // Final score
+    textSize(36);
+    text(score + " - " + aiScore, width/2, height/2);
+    
+    // Restart prompt
     textSize(24);
-    drawTextWithShadow("Final Score: " + playerscore + " - " + pcscore, width/2, height/2);
-    drawTextWithShadow("Press Restart to play again!", width/2, height/2 + 40);
-    
-    noLoop();
+    fill(200, 200, 255);
+    text("Click 'Restart' to play again", width/2, height/2 + 60);
 }
 
-function reset() {
-    ball.x = width/2;
-    ball.y = height/2;
-    ball.dx = (random() > 0.5 ? 1 : -1) * 4;
-    ball.dy = random(-3, 3);
-    ball.trail = [];
-}
-
-function updateTrail() {
-    // Keep trail length manageable
-    if(ball.trail.length > ball.maxTrail) {
-        ball.trail.shift();
-    }
-}
-
-function updateParticles() {
-    for(let particle of particles) {
-        particle.y += particle.speed;
-        if(particle.y > height) {
-            particle.y = 0;
-            particle.x = random(width);
-        }
-        
-        fill(255, 255, 255, 50);
-        noStroke();
-        ellipse(particle.x, particle.y, particle.size);
-    }
-}
-
-function createHitEffect(x, y, isMiss = false) {
-    let effectColor = isMiss ? color(255, 50, 50) : color(100, 255, 100);
-    
-    for(let i = 0; i < 8; i++) {
-        hitEffects.push({
-            x: x,
-            y: y,
-            size: random(5, 15),
-            speed: random(2, 6),
-            angle: random(TWO_PI),
-            life: 255,
-            color: effectColor
-        });
-    }
-}
-
-function updateHitEffects() {
-    for(let i = hitEffects.length - 1; i >= 0; i--) {
-        let effect = hitEffects[i];
-        
-        effect.x += cos(effect.angle) * effect.speed;
-        effect.y += sin(effect.angle) * effect.speed;
-        effect.life -= 10;
-        
-        fill(red(effect.color), green(effect.color), blue(effect.color), effect.life);
-        noStroke();
-        ellipse(effect.x, effect.y, effect.size);
-        
-        if(effect.life <= 0) {
-            hitEffects.splice(i, 1);
-        }
-    }
-}
-
-function startGame() {
+function playPaddleSound() {
+    // Create a simple beep sound using Web Audio API
     try {
-        game_status = "start";
-        gameStarted = true;
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
         
-        if (!poseNetReady) {
-            document.getElementById("status").innerHTML = "⚠️ AI Not Ready - Using Mouse";
-            document.getElementById("status").style.background = "linear-gradient(45deg, #FFA500, #FFD700)";
-        } else {
-            document.getElementById("status").innerHTML = "🎮 Game Running - Move Your Wrist!";
-            document.getElementById("status").style.background = "linear-gradient(45deg, #00b09b, #96c93d)";
-        }
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
         
-        console.log("Game started!");
+        oscillator.frequency.value = 800;
+        oscillator.type = 'sine';
         
-    } catch(error) {
-        console.error("Start game error:", error);
-        errorMessage = "Start Error: " + error.message;
-        showErrorMessage();
+        gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1);
+        
+        oscillator.start();
+        oscillator.stop(audioContext.currentTime + 0.1);
+        
+    } catch (e) {
+        // Sound not supported
     }
 }
 
-function paddleInCanvas() {
-    if (game_status !== "start") return;
+function updateScoreDisplay() {
+    // Update the HTML status
+    document.getElementById("status").innerHTML = 
+        `🎮 Score: ${score} - ${aiScore}`;
+}
+
+function updateStatus(message) {
+    if (document.getElementById("status")) {
+        document.getElementById("status").innerHTML = message;
+    }
+}
+
+function showError(message) {
+    console.error(message);
+    if (document.getElementById("status")) {
+        document.getElementById("status").innerHTML = "❌ " + message;
+        document.getElementById("status").style.background = "linear-gradient(45deg, #ff6b6b, #ee5a24)";
+    }
+}
+
+// Game control functions
+function startGame() {
+    console.log("Starting game...");
     
-    if (!poseNetReady) {
-        // Use mouse as fallback
-        rightWristY = mouseY;
-        rightWristX = mouseX;
+    try {
+        gameState = "playing";
+        score = 0;
+        aiScore = 0;
+        resetBall();
+        
+        updateStatus("🎮 Game Started! Move your wrist");
+        document.getElementById("status").style.background = "linear-gradient(45deg, #00b09b, #96c93d)";
+        
+        // Ensure game is running
+        loop();
+        
+    } catch (error) {
+        console.error("Start game error:", error);
+        showError("Failed to start game");
     }
-    
-    if(rightWristY + paddle1Height > height) {
-        rightWristY = height - paddle1Height;
-    }
-    if(rightWristY < 0) {
-        rightWristY = 0;
-    }
-    paddle1Y = rightWristY;
 }
 
 function restart() {
+    console.log("Restarting game...");
+    
     try {
-        pcscore = 0;
-        playerscore = 0;
-        reset();
-        loop();
-        game_status = "start";
+        gameState = "playing";
+        score = 0;
+        aiScore = 0;
+        resetBall();
         
-        document.getElementById("status").innerHTML = "🔄 Game Restarted!";
-        document.getElementById("status").style.background = "linear-gradient(45deg, #667eea, #764ba2)";
+        updateStatus("🔄 Game Restarted!");
         
+        // Change back to playing status after delay
         setTimeout(() => {
-            if (poseNetReady) {
-                document.getElementById("status").innerHTML = "🎮 Game Running - Move Your Wrist!";
-            } else {
-                document.getElementById("status").innerHTML = "🎮 Game Running - Move Mouse!";
+            if (gameState === "playing") {
+                updateStatus("🎮 Game Running");
             }
-        }, 1500);
+        }, 1000);
         
-    } catch(error) {
+        // Ensure game is running
+        loop();
+        
+    } catch (error) {
         console.error("Restart error:", error);
-        errorMessage = "Restart Error: " + error.message;
-        showErrorMessage();
+        showError("Failed to restart");
     }
 }
 
-// Add fallback mouse control
+// Mouse fallback
 function mouseMoved() {
-    // For debugging/fallback when PoseNet fails
-    if (debugMode && !poseNetReady) {
+    // This will be used if PoseNet isn't available
+    if (gameState === "playing") {
         rightWristY = mouseY;
         rightWristX = mouseX;
     }
 }
 
-// Handle window resize
-function windowResized() {
-    console.log("Window resized");
-    // Keep game running
-}
+// Ensure p5 functions are globally available
+window.setup = setup;
+window.draw = draw;
+window.mouseMoved = mouseMoved;
+window.startGame = startGame;
+window.restart = restart;
+
+console.log("main.js loaded successfully!");
