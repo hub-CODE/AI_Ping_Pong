@@ -1,4 +1,5 @@
-
+/* Enhanced by AI Assistant - Based on original by Prashant Shukla */
+/* Debug and Deployment Version */
 
 // Game variables
 var paddle2 = 12, paddle1 = 12;
@@ -27,109 +28,305 @@ var rightWristY = 0;
 var rightWristX = 0;
 var scoreRightWrist = 0;
 var game_status = "";
+var poseNet = null;
+var video = null;
+var canvas = null;
 
 // Visual effects
 var particles = [];
 var hitEffects = [];
 var gameStarted = false;
+var poseNetReady = false;
+var errorMessage = "";
 
-// Sound variables
-var ball_touch_paddel;
-var missed;
-var backgroundMusic;
-var victorySound;
+// Debug mode
+var debugMode = true;
 
 function preload() {
-    ball_touch_paddel = loadSound("https://assets.mixkit.co/sfx/preview/mixkit-retro-game-emergency-alarm-1000.mp3");
-    missed = loadSound("https://assets.mixkit.co/sfx/preview/mixkit-arcade-retro-game-over-213.mp3");
-    // You can replace these with your own sound files
+    // Load sounds with fallback
+    try {
+        ball_touch_paddel = loadSound("ball_touch_paddel.wav");
+    } catch(e) {
+        console.log("Could not load paddle sound, using fallback");
+        ball_touch_paddel = null;
+    }
+    
+    try {
+        missed = loadSound("missed.wav");
+    } catch(e) {
+        console.log("Could not load missed sound, using fallback");
+        missed = null;
+    }
 }
 
 function setup() {
-    var canvas = createCanvas(700, 600);
-    canvas.parent('canvas');
+    console.log("Setting up game...");
     
-    // Enhanced canvas styling
-    canvas.elt.style.border = '3px solid rgba(255, 255, 255, 0.3)';
-    canvas.elt.style.borderRadius = '15px';
-    canvas.elt.style.boxShadow = '0 10px 30px rgba(0, 0, 0, 0.3)';
+    try {
+        // Create canvas
+        canvas = createCanvas(700, 600);
+        canvas.parent('canvas');
+        
+        // Enhanced canvas styling
+        canvas.elt.style.border = '3px solid rgba(255, 255, 255, 0.3)';
+        canvas.elt.style.borderRadius = '15px';
+        canvas.elt.style.boxShadow = '0 10px 30px rgba(0, 0, 0, 0.3)';
+        
+        // Set initial status
+        document.getElementById("status").innerHTML = "🎮 Loading Game...";
+        
+        // Setup video with error handling
+        setupVideo();
+        
+        // Initialize particles
+        for(let i = 0; i < 20; i++) {
+            particles.push({
+                x: random(width),
+                y: random(height),
+                size: random(2, 5),
+                speed: random(1, 3)
+            });
+        }
+        
+        console.log("Setup complete!");
+        
+    } catch(error) {
+        console.error("Setup error:", error);
+        errorMessage = "Setup Error: " + error.message;
+        showErrorMessage();
+    }
+}
+
+function setupVideo() {
+    console.log("Setting up video...");
     
-    video = createCapture(VIDEO);
-    video.size(700, 600);
-    video.hide();
+    try {
+        // Create video capture
+        video = createCapture(VIDEO);
+        video.size(700, 600);
+        video.hide();
+        
+        // Wait for video to be ready
+        video.elt.onloadeddata = function() {
+            console.log("Video loaded successfully");
+            setupPoseNet();
+        };
+        
+        video.elt.onerror = function() {
+            console.error("Video failed to load");
+            errorMessage = "Camera access failed. Please allow camera access.";
+            poseNetReady = false;
+            showErrorMessage();
+        };
+        
+    } catch(error) {
+        console.error("Video setup error:", error);
+        errorMessage = "Camera Error: " + error.message;
+        poseNetReady = false;
+        showErrorMessage();
+    }
+}
+
+function setupPoseNet() {
+    console.log("Setting up PoseNet...");
     
-    poseNet = ml5.poseNet(video, modelLoaded);
-    poseNet.on('pose', gotPoses);
-    
-    // Initialize particles
-    for(let i = 0; i < 20; i++) {
-        particles.push({
-            x: random(width),
-            y: random(height),
-            size: random(2, 5),
-            speed: random(1, 3)
+    try {
+        // Check if ml5 is loaded
+        if (typeof ml5 === 'undefined') {
+            throw new Error("ml5 library not loaded");
+        }
+        
+        // Initialize PoseNet
+        poseNet = ml5.poseNet(video, {
+            flipHorizontal: true,
+            minConfidence: 0.5
+        }, function() {
+            console.log("✅ PoseNet Model Loaded!");
+            poseNetReady = true;
+            poseNet.on('pose', gotPoses);
+            
+            // Update status
+            document.getElementById("status").innerHTML = "✅ Ready! Click 'Play Game'";
+            document.getElementById("status").style.background = "linear-gradient(45deg, #00b09b, #96c93d)";
+            
+            // Enable start button
+            document.getElementById("start").disabled = false;
         });
+        
+        // Error callback
+        poseNet.on('error', function(error) {
+            console.error("PoseNet Error:", error);
+            errorMessage = "AI Model Failed to Load. Check console.";
+            poseNetReady = false;
+            showErrorMessage();
+        });
+        
+    } catch(error) {
+        console.error("PoseNet setup error:", error);
+        errorMessage = "AI Setup Error: " + error.message;
+        poseNetReady = false;
+        showErrorMessage();
     }
 }
 
 function modelLoaded() {
-    console.log('PoseNet Is Initialized - Ready for NeuraPong!');
-}
-
-function gotPoses(results) {
-    if(results.length > 0) {
-        rightWristY = results[0].pose.rightWrist.y;
-        rightWristX = results[0].pose.rightWrist.x;
-        scoreRightWrist = results[0].pose.keypoints[10].score;
-    }
-}
-
-function startGame() {
-    game_status = "start";
-    gameStarted = true;
-    document.getElementById("status").innerHTML = "🎮 Game Loaded - Move Your Wrist!";
+    console.log('✅ PoseNet Is Initialized - Ready for NeuraPong!');
+    poseNetReady = true;
+    
+    // Update status
+    document.getElementById("status").innerHTML = "✅ Ready! Click 'Play Game'";
     document.getElementById("status").style.background = "linear-gradient(45deg, #00b09b, #96c93d)";
 }
 
-function draw() {
-    // Enhanced background with gradient effect
-    drawEnhancedBackground();
-    
-    // Draw video feed with overlay
-    drawVideoFeed();
-    
-    // Draw court elements
-    drawCourt();
-    
-    // Draw wrist tracking
-    if(scoreRightWrist > 0.2) {
-        drawWristMarker();
+function gotPoses(results) {
+    if(results && results.length > 0) {
+        try {
+            rightWristY = results[0].pose.rightWrist.y;
+            rightWristX = results[0].pose.rightWrist.x;
+            scoreRightWrist = results[0].pose.keypoints[10].score;
+        } catch(e) {
+            console.warn("Pose data parsing error:", e);
+        }
     }
+}
+
+function showErrorMessage() {
+    console.error("Displaying error:", errorMessage);
     
-    if(game_status == "start") {
-        updateGameStatus();
-        paddleInCanvas();
+    // Create error display on canvas
+    background(255, 0, 0, 100);
+    fill(255);
+    stroke(0);
+    strokeWeight(2);
+    textSize(20);
+    textAlign(CENTER);
+    text("⚠️ ERROR", width/2, height/2 - 40);
+    text(errorMessage, width/2, height/2);
+    text("Check console for details", width/2, height/2 + 40);
+    
+    // Update status
+    document.getElementById("status").innerHTML = "❌ Error - Check Console";
+    document.getElementById("status").style.background = "linear-gradient(45deg, #ff6b6b, #ee5a24)";
+}
+
+function draw() {
+    try {
+        // Check for errors first
+        if (errorMessage) {
+            showErrorMessage();
+            return;
+        }
         
-        // Draw paddles with enhanced graphics
+        // Check if canvas is ready
+        if (!canvas) {
+            console.error("Canvas not initialized");
+            return;
+        }
+        
+        // Draw different screens based on game state
+        if (game_status !== "start") {
+            drawWelcomeScreen();
+            return;
+        }
+        
+        // Main game loop
+        drawEnhancedBackground();
+        
+        if (video && poseNetReady) {
+            drawVideoFeed();
+        } else {
+            drawFallbackView();
+        }
+        
+        drawCourt();
+        
+        if(scoreRightWrist > 0.2) {
+            drawWristMarker();
+        }
+        
+        paddleInCanvas();
         drawPlayerPaddle();
         drawComputerPaddle();
-        
-        // Draw game elements
         midline();
         drawScore();
         drawModels();
-        
-        // Update game physics
         move();
         updateTrail();
         updateParticles();
         updateHitEffects();
+        
+    } catch(error) {
+        console.error("Draw loop error:", error);
+        errorMessage = "Render Error: " + error.message;
+        showErrorMessage();
     }
+}
+
+function drawWelcomeScreen() {
+    // Welcome screen with instructions
+    background(102, 126, 234);
+    
+    fill(255, 255, 255, 200);
+    noStroke();
+    rect(50, 50, width-100, height-100, 20);
+    
+    fill(102, 126, 234);
+    textSize(36);
+    textAlign(CENTER);
+    text("🎮 NEURAPONG", width/2, 120);
+    
+    textSize(20);
+    fill(60);
+    text("AI Ping Pong with Hand Tracking", width/2, 170);
+    
+    // Status indicator
+    if (!poseNetReady) {
+        fill(255, 165, 0);
+        text("Loading AI Model...", width/2, 250);
+    } else {
+        fill(0, 150, 0);
+        text("✅ AI Model Ready!", width/2, 250);
+    }
+    
+    // Instructions
+    textSize(16);
+    fill(80);
+    text("Click 'Play Game' to start", width/2, 320);
+    text("Move your right wrist to control the paddle", width/2, 350);
+    text("Make sure camera can see your wrist", width/2, 380);
+    
+    // Camera preview
+    if (video) {
+        push();
+        translate(width/2, 450);
+        scale(0.3);
+        image(video, -video.width/2, -video.height/2);
+        pop();
+    }
+}
+
+function drawFallbackView() {
+    // Fallback when video/PoseNet isn't working
+    background(50);
+    
+    fill(255, 255, 255, 100);
+    textSize(24);
+    textAlign(CENTER);
+    text("⚠️ Camera/AI Not Available", width/2, height/2 - 50);
+    
+    textSize(16);
+    text("Using mouse/touch controls instead", width/2, height/2);
+    
+    // Show mouse position as fallback
+    fill(255, 0, 0);
+    circle(mouseX, mouseY, 30);
+    rightWristY = mouseY;
+    rightWristX = mouseX;
 }
 
 function drawEnhancedBackground() {
     // Gradient background
-    for(let y = 0; y < height; y++) {
+    for(let y = 0; y < height; y += 2) {
         let inter = map(y, 0, height, 0, 1);
         let c = lerpColor(color(102, 126, 234), color(118, 75, 162), inter);
         stroke(c);
@@ -139,13 +336,17 @@ function drawEnhancedBackground() {
 
 function drawVideoFeed() {
     // Draw video with transparency and overlay
-    tint(255, 150);
-    image(video, 0, 0, 700, 600);
-    noTint();
-    
-    // Add overlay
-    fill(0, 0, 0, 50);
-    rect(0, 0, width, height);
+    try {
+        tint(255, 150);
+        image(video, 0, 0, 700, 600);
+        noTint();
+        
+        // Add overlay
+        fill(0, 0, 0, 50);
+        rect(0, 0, width, height);
+    } catch(e) {
+        console.warn("Video feed error:", e);
+    }
 }
 
 function drawCourt() {
@@ -327,25 +528,46 @@ function handlePaddleHit() {
     ball.dy += paddleSpeed * 0.1;
     
     playerscore++;
-    ball_touch_paddel.play();
+    
+    // Play sound if available
+    if (ball_touch_paddel) {
+        try {
+            ball_touch_paddel.play();
+        } catch(e) {
+            console.log("Sound play failed");
+        }
+    }
+    
     createHitEffect(ball.x, ball.y);
     
     // Visual feedback
     document.getElementById("status").innerHTML = "🔥 Great Save!";
     setTimeout(() => {
         if(game_status == "start") {
-            document.getElementById("status").innerHTML = "🎮 Game Loaded - Move Your Wrist!";
+            document.getElementById("status").innerHTML = "🎮 Game Running";
         }
     }, 1000);
 }
 
 function handleMiss() {
     pcscore++;
-    missed.play();
+    
+    // Play sound if available
+    if (missed) {
+        try {
+            missed.play();
+        } catch(e) {
+            console.log("Sound play failed");
+        }
+    }
     
     // Enhanced vibration pattern
     if("vibrate" in navigator) {
-        navigator.vibrate([100, 50, 100]);
+        try {
+            navigator.vibrate([100, 50, 100]);
+        } catch(e) {
+            console.log("Vibration not supported");
+        }
     }
     
     createHitEffect(ball.x, ball.y, true);
@@ -436,13 +658,37 @@ function updateHitEffects() {
     }
 }
 
-function updateGameStatus() {
-    if(!document.getElementById("status").innerHTML.includes("Game Loaded")) {
-        document.getElementById("status").innerHTML = "🎮 Game Loaded - Move Your Wrist!";
+function startGame() {
+    try {
+        game_status = "start";
+        gameStarted = true;
+        
+        if (!poseNetReady) {
+            document.getElementById("status").innerHTML = "⚠️ AI Not Ready - Using Mouse";
+            document.getElementById("status").style.background = "linear-gradient(45deg, #FFA500, #FFD700)";
+        } else {
+            document.getElementById("status").innerHTML = "🎮 Game Running - Move Your Wrist!";
+            document.getElementById("status").style.background = "linear-gradient(45deg, #00b09b, #96c93d)";
+        }
+        
+        console.log("Game started!");
+        
+    } catch(error) {
+        console.error("Start game error:", error);
+        errorMessage = "Start Error: " + error.message;
+        showErrorMessage();
     }
 }
 
 function paddleInCanvas() {
+    if (game_status !== "start") return;
+    
+    if (!poseNetReady) {
+        // Use mouse as fallback
+        rightWristY = mouseY;
+        rightWristX = mouseX;
+    }
+    
     if(rightWristY + paddle1Height > height) {
         rightWristY = height - paddle1Height;
     }
@@ -453,13 +699,42 @@ function paddleInCanvas() {
 }
 
 function restart() {
-    pcscore = 0;
-    playerscore = 0;
-    reset();
-    loop();
-    game_status = "start";
-    document.getElementById("status").innerHTML = "🔄 Game Restarted!";
-    setTimeout(() => {
-        document.getElementById("status").innerHTML = "🎮 Game Loaded - Move Your Wrist!";
-    }, 1500);
+    try {
+        pcscore = 0;
+        playerscore = 0;
+        reset();
+        loop();
+        game_status = "start";
+        
+        document.getElementById("status").innerHTML = "🔄 Game Restarted!";
+        document.getElementById("status").style.background = "linear-gradient(45deg, #667eea, #764ba2)";
+        
+        setTimeout(() => {
+            if (poseNetReady) {
+                document.getElementById("status").innerHTML = "🎮 Game Running - Move Your Wrist!";
+            } else {
+                document.getElementById("status").innerHTML = "🎮 Game Running - Move Mouse!";
+            }
+        }, 1500);
+        
+    } catch(error) {
+        console.error("Restart error:", error);
+        errorMessage = "Restart Error: " + error.message;
+        showErrorMessage();
+    }
+}
+
+// Add fallback mouse control
+function mouseMoved() {
+    // For debugging/fallback when PoseNet fails
+    if (debugMode && !poseNetReady) {
+        rightWristY = mouseY;
+        rightWristX = mouseX;
+    }
+}
+
+// Handle window resize
+function windowResized() {
+    console.log("Window resized");
+    // Keep game running
 }
