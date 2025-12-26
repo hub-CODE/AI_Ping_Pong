@@ -105,5 +105,10 @@
             }
         });
     </script>
+    <script>
+        navigator.mediaDevices.getUserMedia({ video: true })
+        .then(() => console.log("Camera access granted"))
+        .catch(err => console.error("Camera error:", err));
+    </script>
 </body>
 </html>
